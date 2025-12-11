@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>画像5枚横並び + 役名表示（修正版・単一ファイル）</title>
+  <title>画像5枚横並び + 役名表示（保存機能付き）</title>
   <style>
     :root{
       --bg:#f7f8fa;
@@ -34,7 +34,6 @@
       margin-bottom:18px;
     }
 
-    /* 入力エリア */
     .role-input{
       display:flex;
       flex-direction:column;
@@ -57,7 +56,6 @@
       display:flex;
       flex-direction:column;
       gap:8px;
-      align-items:stretch;
     }
     .slot .thumb{
       width:100%;
@@ -70,13 +68,12 @@
       overflow:hidden;
     }
     .slot .thumb img{width:100%; height:100%; object-fit:cover; display:block}
-    .slot label{font-size:13px; color:var(--muted); margin-bottom:4px}
+    .slot label{font-size:13px; color:var(--muted)}
     .slot input[type="file"]{padding:6px}
 
     .controls{
       display:flex;
       gap:8px;
-      justify-content:flex-start;
       flex-wrap:wrap;
       margin-top:6px;
     }
@@ -92,7 +89,6 @@
     button#clear-btn{background:var(--danger)}
     button[disabled]{opacity:0.6; cursor:not-allowed}
 
-    /* プレビュー：画像5枚を横並びに表示 */
     .cards-list{
       padding:12px 8px;
       background:#fff;
@@ -104,7 +100,7 @@
       gap:12px;
       align-items:flex-start;
       justify-content:center;
-      flex-wrap:wrap; /* 小さい画面では折り返す */
+      flex-wrap:wrap;
       margin-bottom:12px;
     }
     .card{
@@ -127,7 +123,6 @@
     .card .image img{width:100%; height:100%; object-fit:cover; display:block}
     .card .placeholder{padding:12px;color:var(--muted)}
 
-    /* 役名（画像群の下、中央寄せ） */
     .role-display{
       text-align:center;
       font-weight:700;
@@ -137,7 +132,6 @@
       border-radius:6px;
     }
 
-    /* 小さい画面用 */
     @media (max-width:520px){
       .card{ width:100px; }
     }
@@ -146,13 +140,13 @@
 </head>
 <body>
   <header>
-    <h1>画像5枚横並び + 役名表示（修正版）</h1>
-    <p>画像を5枚アップロードし、画像群の下に役名を1つ表示します。修正版では「復元後も再アップロードせずに保存できる」など、アップロードの使い勝手を改善しました。</p>
+    <h1>画像5枚横並び + 役名表示（保存機能付き）</h1>
+    <p>画像を5枚アップロードし、画像群の下に役名を表示。さらに一覧を画像として保存できます。</p>
   </header>
 
   <main>
-    <section class="input-area" aria-labelledby="input-heading">
-      <h2 id="input-heading">入力</h2>
+    <section class="input-area">
+      <h2>入力</h2>
 
       <form id="cards-form" onsubmit="return false;">
         <div class="role-input">
@@ -160,29 +154,29 @@
           <input type="text" id="role-name" placeholder="例：リーチ" maxlength="100" />
         </div>
 
-        <div class="slots" id="slots" aria-label="画像アップロードスロット">
-          <!-- スロットは JavaScript で生成 -->
-        </div>
+        <div class="slots" id="slots"></div>
 
         <div class="controls">
           <button type="button" id="preview-btn">一覧を表示</button>
           <button type="button" id="save-btn">保存</button>
+          <button type="button" id="download-image-btn">画像として保存</button>
           <button type="button" id="clear-btn">全てクリア</button>
         </div>
       </form>
     </section>
 
-    <section class="list-area" aria-labelledby="list-heading">
-      <h2 id="list-heading">一覧プレビュー</h2>
-      <div id="cards-list" class="cards-list" role="region" aria-live="polite">
-        <!-- プレビュー（横並びの画像群 + 役名） -->
-      </div>
+    <section class="list-area">
+      <h2>一覧プレビュー</h2>
+      <div id="cards-list" class="cards-list"></div>
     </section>
   </main>
 
   <footer>
-    <small>作成: 単一HTMLファイル版 — 画像はブラウザのファイルを使用します</small>
+    <small>作成: 単一HTMLファイル版 — 画像保存機能付き</small>
   </footer>
+
+  <!-- html2canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
   <script>
     (function(){
@@ -193,13 +187,11 @@
       const saveBtn = document.getElementById('save-btn');
       const clearBtn = document.getElementById('clear-btn');
       const roleInput = document.getElementById('role-name');
+      const downloadBtn = document.getElementById('download-image-btn');
 
       const STORAGE_KEY = 'five_images_role_under_singlefile_v2';
-
-      // 一時的にプレビュー用の objectURL を保持して revoke できるようにする
       const previewObjectUrls = new Map();
 
-      // スロットを作成
       function createSlots(){
         for(let i=0;i<SLOT_COUNT;i++){
           const slot = document.createElement('div');
@@ -207,7 +199,7 @@
           slot.dataset.index = i;
 
           slot.innerHTML = `
-            <div class="thumb" aria-hidden="true">
+            <div class="thumb">
               <span class="thumb-placeholder">画像を選択</span>
             </div>
             <label for="file-${i}">画像 (${i+1})</label>
@@ -219,7 +211,6 @@
 
           fileInput.addEventListener('change', (ev) => {
             const file = ev.target.files && ev.target.files[0];
-            // revoke previous objectURL for this slot
             if(previewObjectUrls.has(i)){
               URL.revokeObjectURL(previewObjectUrls.get(i));
               previewObjectUrls.delete(i);
@@ -230,21 +221,15 @@
               return;
             }
 
-            // preview via object URL (fast). We'll still convert to DataURL when saving.
             const objUrl = URL.createObjectURL(file);
             previewObjectUrls.set(i, objUrl);
-            thumb.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = objUrl;
-            img.alt = `選択画像 ${i+1}`;
-            thumb.appendChild(img);
+            thumb.innerHTML = `<img src="${objUrl}" alt="選択画像 ${i+1}">`;
           });
 
           slotsContainer.appendChild(slot);
         }
       }
 
-      // ファイルをdataURLに変換（保存用）
       function fileToDataURL(file){
         return new Promise((res, rej) => {
           const fr = new FileReader();
@@ -254,19 +239,15 @@
         });
       }
 
-      // 入力を集める（roleは1つ）
-      // 重要な修正点：
-      //  - 「復元したプレビュー画像があるが input.files が空」の場合、プレビュー中の img.src（DataURL）を使えるようにする。
-      //  - ファイルが選択されている場合は fileToDataURL(file) を使って DataURL を作成する。
       async function gatherInputs(){
         const images = [];
         const slotEls = Array.from(document.querySelectorAll('.slot'));
+
         for(const slot of slotEls){
           const idx = Number(slot.dataset.index);
           const fileInput = slot.querySelector(`#file-${idx}`);
           let dataUrl = '';
 
-          // 1) ファイル入力にファイルがある場合はそれをDataURL化
           if(fileInput.files && fileInput.files[0]){
             try {
               dataUrl = await fileToDataURL(fileInput.files[0]);
@@ -274,35 +255,28 @@
               console.error('fileToDataURL error', e);
             }
           } else {
-            // 2) fileInput が空でも、プレビュー用の img がある（復元済み）なら、その src を使う
             const img = slot.querySelector('.thumb img');
-            if(img && img.src){
-              dataUrl = img.src;
-            } else {
-              dataUrl = '';
-            }
+            if(img && img.src) dataUrl = img.src;
           }
-
           images.push({ image: dataUrl });
         }
+
         return {
           role: roleInput.value.trim(),
           images
         };
       }
 
-      // レンダリング：画像を横並びにし、下に役名を1つ表示
       function renderList(payload){
         cardsList.innerHTML = '';
 
         const row = document.createElement('div');
         row.className = 'cards-row';
-        // 画像カード（空のスロットはプレースホルダ表示）
+
         payload.images.forEach((it, idx) => {
           const card = document.createElement('div');
           card.className = 'card';
           if(it.image){
-            // dataURL or objectURL are fine for src
             card.innerHTML = `<div class="image"><img src="${it.image}" alt="画像 ${idx+1}" /></div>`;
           } else {
             card.innerHTML = `<div class="image"><div class="placeholder">画像なし</div></div>`;
@@ -318,52 +292,38 @@
         cardsList.appendChild(roleDiv);
       }
 
-      // 保存 / 読み込み（localStorage）
       function saveToStorage(payload){
         try{
-          // 注意: localStorage にはサイズ制限があります。大量の大きな画像を保存すると失敗します。
           localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
           saveBtn.textContent = '保存しました';
           saveBtn.disabled = true;
           setTimeout(()=>{ saveBtn.textContent = '保存'; saveBtn.disabled = false; }, 1200);
         }catch(e){
-          console.error('保存失敗', e);
-          alert('保存に失敗しました（容量制限の可能性があります）：' + e.message);
+          alert('保存に失敗しました（容量制限の可能性）');
         }
       }
 
       function loadFromStorage(){
         try{
           const raw = localStorage.getItem(STORAGE_KEY);
-          if(!raw) return null;
-          return JSON.parse(raw);
+          return raw ? JSON.parse(raw) : null;
         }catch(e){
-          console.error('読み込み失敗', e);
           return null;
         }
       }
 
-      // 復元：画像はDataURLでプレビューを表示する（file input 自体には戻せない）
       function restoreToForm(payload){
         if(!payload) return;
         roleInput.value = payload.role || '';
         const slotEls = Array.from(document.querySelectorAll('.slot'));
+
         slotEls.forEach((slot, i) => {
           const thumb = slot.querySelector('.thumb');
           const fileInput = slot.querySelector(`#file-${i}`);
-          // revoke previous objectURL if any
-          if(previewObjectUrls.has(i)){
-            URL.revokeObjectURL(previewObjectUrls.get(i));
-            previewObjectUrls.delete(i);
-          }
 
           if(payload.images?.[i]?.image){
-            thumb.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = payload.images[i].image; // DataURL saved previously
-            img.alt = `復元画像 ${i+1}`;
-            thumb.appendChild(img);
-            fileInput.value = ''; // cannot set File object
+            thumb.innerHTML = `<img src="${payload.images[i].image}" alt="復元画像 ${i+1}">`;
+            fileInput.value = '';
           } else {
             thumb.innerHTML = `<span class="thumb-placeholder">画像を選択</span>`;
             fileInput.value = '';
@@ -371,30 +331,57 @@
         });
       }
 
-      // クリア
       function clearAll(){
-        if(!confirm('本当に全ての入力と保存をクリアしますか？')) return;
+        if(!confirm('本当に全てクリアしますか？')) return;
         roleInput.value = '';
+
         const slotEls = Array.from(document.querySelectorAll('.slot'));
         slotEls.forEach((slot, i) => {
           const fileInput = slot.querySelector(`#file-${i}`);
           const thumb = slot.querySelector('.thumb');
-          // revoke objectURL if any
-          if(previewObjectUrls.has(i)){
-            URL.revokeObjectURL(previewObjectUrls.get(i));
-            previewObjectUrls.delete(i);
-          }
+
           fileInput.value = '';
           thumb.innerHTML = `<span class="thumb-placeholder">画像を選択</span>`;
         });
+
         localStorage.removeItem(STORAGE_KEY);
         cardsList.innerHTML = '';
       }
 
-      // 初期化
+      /*-------------------------------------------
+         ★ 一覧を PNG として保存する機能
+      -------------------------------------------*/
+      downloadBtn.addEventListener('click', async () => {
+        if (!cardsList.innerHTML.trim()) {
+          alert("画像一覧がありません。先に一覧を表示してください。");
+          return;
+        }
+
+        const target = cardsList;
+
+        // 一時的に影や境界線を外して綺麗に保存
+        const prevShadow = target.style.boxShadow;
+        const prevBorder = target.style.border;
+        target.style.boxShadow = "none";
+        target.style.border = "none";
+
+        const canvas = await html2canvas(target, {
+          scale: 2,
+          useCORS: true
+        });
+
+        // 元に戻す
+        target.style.boxShadow = prevShadow;
+        target.style.border = prevBorder;
+
+        const link = document.createElement('a');
+        link.download = "cards-list.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+
       function init(){
         createSlots();
-
         const saved = loadFromStorage();
         if(saved){
           restoreToForm(saved);
@@ -414,16 +401,7 @@
         clearBtn.addEventListener('click', clearAll);
       }
 
-      // run
       init();
-
-      // ページを離れるときに objectURL を確実に解放
-      window.addEventListener('beforeunload', () => {
-        previewObjectUrls.forEach((url) => {
-          try { URL.revokeObjectURL(url); } catch(e){ /* ignore */ }
-        });
-        previewObjectUrls.clear();
-      });
     })();
   </script>
 </body>
